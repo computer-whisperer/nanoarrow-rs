@@ -1,0 +1,33 @@
+[package]
+name = "nanoarrow-rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "nanoarrow"
+path = "src/lib.rs"
+
+[[bin]]
+name = "flight-test"
+path = "src/flight_test.rs"
+
+[dependencies]
+flatbuffers = "24.3.25"
+embedded-io-async = "0.6"
+embedded-nal-async = "0.7.1"
+bytes = "1.6.0"
+femtopb = "0.4.5"
+std-embedded-nal-async = "0.2.0"
+async-std = { version="1.12.0", features=["attributes"] }
+log = "0.4.21"
+typenum = "1.17.0"
+
+[build-dependencies]
+femtopb-build = "0.4.5"
+anyhow = "1.0.86"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dev-dependencies]
+arrow = "52.0.0"
+arrow-flight = "52.0.0"
+hpack-patched = "0.3.0"
