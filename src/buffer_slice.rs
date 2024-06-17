@@ -1,3 +1,29 @@
+use alloc::vec;
+use alloc::vec::Vec;
+use miniz_oxide::deflate::core::{
+    compress,
+    CompressorOxide,
+    TDEFLFlush,
+    TDEFLStatus,};
+
+pub fn zlib_deflate<'b>(slices: &[&[u8]], compressor: &mut CompressorOxide, buffer: &'b mut [u8]) -> &'b [u8] {
+    compressor.reset();
+    let mut bytes_written = 0;
+    for i in 0..slices.len() {
+        let flush_mode = if i < slices.len()-1 {TDEFLFlush::Sync} else {TDEFLFlush::Finish};
+        let (status, input_pos, output_pos) = compress(
+            compressor,
+            slices[i],
+            &mut buffer[bytes_written..],
+            flush_mode);
+        bytes_written += output_pos;
+        assert_eq!(input_pos, slices[i].len());
+        assert_eq!(status, match flush_mode {TDEFLFlush::Finish => TDEFLStatus::Done, _ => TDEFLStatus::Okay});
+    }
+
+    &buffer[..bytes_written]
+}
+
 
 #[derive(Debug, Clone)]
 pub struct BufferSlice<'a, const L: usize>
@@ -12,8 +38,12 @@ impl<'a, const L: usize> BufferSlice<'a, L> {
         }
     }
 
-    pub fn to_slice_slice(&self) -> [&'a [u8]; L] {
+    pub fn to_slice_array(&self) -> [&'a [u8]; L] {
         self.data
+    }
+
+    pub fn to_slice_slice(&self) -> &[&'a [u8]] {
+        &self.data[..]
     }
 
     pub fn append_slice(&self, data: &'a [u8]) -> BufferSlice<'a, { L + 1 }> {
@@ -66,6 +96,18 @@ impl<'a, const L: usize> BufferSlice<'a, L> {
             len += slice.len();
         }
         len
+    }
+
+    pub fn zlib_deflate<'b>(&self, compressor: &mut CompressorOxide, buffer: &'b mut [u8]) -> &'b [u8] {
+        zlib_deflate(self.to_slice_slice(), compressor, buffer)
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut vec = vec![];
+        for slice in self.data {
+            vec.extend_from_slice(slice);
+        }
+        vec
     }
 }
 

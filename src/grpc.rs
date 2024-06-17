@@ -1,6 +1,20 @@
-use crate::buffer_slice::BufferSlice;
+use miniz_oxide::deflate::CompressionLevel;
+use miniz_oxide::deflate::core::{CompressionStrategy, CompressorOxide, create_comp_flags_from_zip_params};
+use crate::buffer_slice::{BufferSlice, zlib_deflate};
 use crate::{hpack, http2};
 use crate::http2::HTTP2Client;
+
+pub struct GRPCCompressor {
+    compressor: CompressorOxide
+}
+
+impl GRPCCompressor {
+    pub fn new() -> Self {
+        Self {
+            compressor: CompressorOxide::new(create_comp_flags_from_zip_params(CompressionLevel::BestSpeed as i32, 1, CompressionStrategy::Default as i32))
+        }
+    }
+}
 
 pub struct GRPCMessage<'a, const L: usize> {
     prefix: [u8; 5],
@@ -44,6 +58,62 @@ impl<'a, const L: usize> GRPCMessage<'a, L> {
             proto_body
         }
     }
+
+    pub fn compress<'b>(&self, compressor: &mut GRPCCompressor, buffer: &'b mut [u8]) -> GRPCMessage<'b, 1> {
+        assert_eq!(self.prefix[0], 0); // Don't compress if already compressed
+        GRPCMessage::<1>::from_proto_message(
+            BufferSlice::new_from_slice(self.proto_body.zlib_deflate(&mut compressor.compressor, buffer)),
+            true
+        )
+    }
+
+    pub fn len(&self) -> usize {
+        self.prefix.len() + self.proto_body.len()
+    }
+
+    pub fn compressed(&self) -> bool {
+        self.prefix[0] == 1
+    }
+}
+
+pub trait GRPCMessageBoxWritable {
+    fn compress_from_slice<'a, 'b>(&'a mut self, compressor: &mut GRPCCompressor, source: &'b [&'b[u8]]);
+}
+
+#[derive(Clone, Copy)]
+pub struct GRPCMessageBox<const L: usize> {
+    buffer: [u8; L],
+    length: usize,
+    is_compressed: bool
+}
+
+impl<const L: usize> GRPCMessageBox<L> {
+    pub fn new() -> Self {
+        Self {
+            buffer: [0; L],
+            length: 0,
+            is_compressed: false
+        }
+    }
+
+    pub fn compress_from<'a, 'b, const L2: usize>(&'a mut self, compressor: &mut GRPCCompressor, source: &'b GRPCMessage<'b, L2>) {
+        assert!(!source.compressed());
+        let new_slice = source.proto_body.zlib_deflate(&mut compressor.compressor, &mut self.buffer);
+        self.length = new_slice.len();
+        self.is_compressed = true;
+    }
+
+    pub fn get_message(&self) -> GRPCMessage<'_, 1> {
+        GRPCMessage::from_proto_message(BufferSlice::new_from_slice(&self.buffer[..self.length]), self.is_compressed)
+    }
+}
+
+impl<const L: usize> GRPCMessageBoxWritable for GRPCMessageBox<L> {
+    fn compress_from_slice<'a, 'b>(&'a mut self, compressor: &mut GRPCCompressor, source: &'b [&'b[u8]]) {
+        let new_slice = zlib_deflate(source, &mut compressor.compressor, &mut self.buffer);
+        self.length = new_slice.len();
+        self.is_compressed = true;
+    }
 }
 
 pub struct GRPCClient<'a, T>
@@ -68,7 +138,7 @@ where
     pub async fn send_message<'b, const L: usize> (
         &mut self,
         grpc_call: &GRPCCall,
-        message: GRPCMessage<'b, L>,
+        message: &GRPCMessage<'b, L>,
         end_call: bool) -> Result<(), http2::Error>
         where
             [(); {L+1}]:,
@@ -78,7 +148,7 @@ where
     }
 
     pub async fn new_call(&mut self, grpc_path: &str) -> Result<GRPCCall, http2::Error> {
-        let mut header_list = hpack::PlaintextHeaderList::<6>::new();
+        let mut header_list = hpack::PlaintextHeaderList::<7>::new();
 
         header_list.add_header(":method",  "POST");
         header_list.add_header(":scheme",  "http");
@@ -86,6 +156,8 @@ where
         header_list.add_header(":authority", "no");
         header_list.add_header("te",  "trailers");
         header_list.add_header("content-type",  "application/grpc+proto");
+        header_list.add_header("grpc-encoding",  "deflate");
+
 
         let http2_stream = self.http2_client.new_outbound_stream(header_list).await?;
         Ok(GRPCCall {

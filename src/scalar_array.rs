@@ -72,6 +72,7 @@ where
 {
     pub fn new_empty_from_u8(backing: &'a mut [u8]) -> Self {
         let align = core::mem::align_of::<T>();
+        let res = backing.as_ptr() as u64;
         let is_aligned = backing.as_ptr().align_offset(align) == 0;
 
         assert!(is_aligned, "Slice is not aligned with the specified scalar type");
@@ -142,6 +143,10 @@ where
         self.length
     }
 
+    pub fn max_len(&self) -> usize {
+        self.backing.len() / core::mem::size_of::<T>()
+    }
+
     pub fn len_in_bytes(&self) -> usize {
         self.length * core::mem::size_of::<T>()
     }
@@ -153,6 +158,10 @@ where
 
     pub fn as_aligned_slice(&self) -> &[u8] {
         &self.backing[0..self.len_in_bytes_aligned()]
+    }
+
+    pub fn clear(&mut self) {
+        self.length = 0;
     }
 }
 

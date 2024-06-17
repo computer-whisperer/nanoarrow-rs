@@ -427,7 +427,7 @@ impl<'a, T> HTTP2Client<'a, T> where T: embedded_io_async::Write + embedded_io_a
         let mut header_buff = [0u8; 9];
         let mut misc_buff = [0u8; 4];
         let header_frame_slices = frame.encode_frame(&mut header_buff, &mut misc_buff)?;
-        for slice in header_frame_slices.to_slice_slice() {
+        for slice in header_frame_slices.to_slice_array() {
             self.connection.write_all(slice).await.map_err(|_| Error::WriteError)?;
         }
         Ok(())
