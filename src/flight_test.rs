@@ -41,7 +41,7 @@ async fn run<S, E, DnsError>(stack: &mut S) -> Result<(), E>
 
     type RawMutexType = NoopRawMutex;
 
-    let mut flight_client = FlightClient::<RawMutexType, 2000, 3>::new();
+    let mut flight_client = FlightClient::<RawMutexType, 10000, 3>::new();
 
     let mut raw_buf_a = [0u8;   1000];
     let mut raw_buf_b = [0u8; 10000];
@@ -62,10 +62,11 @@ async fn run<S, E, DnsError>(stack: &mut S) -> Result<(), E>
         print!("Done appending rows\r\n");
     };
 
-    let compressor_future = flight_client.compression_loop();
+    //let processing_future = flight_client.compression_loop();
+    let processing_future = flight_client.copy_loop();
     let grpc_future = flight_client.grpc_loop(stack, target);
 
-    join3(writer_future, compressor_future, grpc_future).await;
+    join3(writer_future, processing_future, grpc_future).await;
 
     Ok(())
 }

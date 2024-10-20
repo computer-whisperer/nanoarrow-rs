@@ -19,6 +19,9 @@ where
     fn write_compressed_flight_record_batch_message<'a, 'fbb>(
         &self, builder: &'a mut FlatBufferBuilder<'fbb>, compressor: &mut GRPCCompressor, message_box: &mut dyn GRPCMessageBoxWritable)
         -> Result<(), TryLockError>;
+    fn write_uncompressed_flight_record_batch_message<'a, 'fbb>(
+        &self, builder: &'a mut FlatBufferBuilder<'fbb>, message_box: &mut dyn GRPCMessageBoxWritable)
+        -> Result<(), TryLockError>;
     fn get_new_readable_signal(&self) -> &Signal<RawMutexType, ()>;
     fn get_path(&self) -> &[&str];
 }
@@ -142,7 +145,21 @@ where
         let raw_message = encode_record_batch_from_parts(descriptor, &mut temp_buffer, header, body);
         let (proto_body, is_compressed) = raw_message.get_proto_message();
         assert!(!is_compressed);
-        message_box.compress_from_slice(compressor, proto_body.to_slice_slice());
+        message_box.compress_from_slice_slice(compressor, proto_body.to_slice_slice());
+        Ok(())
+    }
+
+    fn write_uncompressed_flight_record_batch_message<'b, 'fbb>(
+        &self, builder: &'b mut FlatBufferBuilder<'fbb>, message_box: &mut dyn GRPCMessageBoxWritable)
+        -> Result<(), TryLockError> {
+        let buffer = self.try_get_readable_buffer()?;
+        let (header, body) = buffer.get_record_batch(builder);
+        let descriptor= build_path_descriptor(self.descriptor_path);
+        let mut temp_buffer = [0u8; 200];
+        let raw_message = encode_record_batch_from_parts(descriptor, &mut temp_buffer, header, body);
+        let (proto_body, is_compressed) = raw_message.get_proto_message();
+        assert!(!is_compressed);
+        message_box.copy_from_slice_slice(proto_body.to_slice_slice());
         Ok(())
     }
 

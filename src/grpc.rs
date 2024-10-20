@@ -1,9 +1,8 @@
-use miniz_oxide::deflate::CompressionLevel;
-use miniz_oxide::deflate::core::{CompressionStrategy, CompressorOxide, create_comp_flags_from_zip_params};
-use crate::buffer_slice::{BufferSlice, zlib_deflate};
+use crate::buffer_slice::{BufferSlice};
 use crate::{hpack, http2};
 use crate::http2::HTTP2Client;
 
+/*
 pub struct GRPCCompressor {
     compressor: CompressorOxide
 }
@@ -13,6 +12,43 @@ impl GRPCCompressor {
         Self {
             compressor: CompressorOxide::new(create_comp_flags_from_zip_params(CompressionLevel::BestSpeed as i32, 1, CompressionStrategy::Default as i32))
         }
+    }
+
+    pub fn zlib_deflate<'b>(&mut self, slices: &[&[u8]], buffer: &'b mut [u8]) -> &'b [u8] {
+        self.compressor.reset();
+        let mut bytes_written = 0;
+        for i in 0..slices.len() {
+            let flush_mode = if i < slices.len()-1 {TDEFLFlush::Sync} else {TDEFLFlush::Finish};
+            let (status, input_pos, output_pos) = compress(
+                self.compressor,
+                slices[i],
+                &mut buffer[bytes_written..],
+                flush_mode);
+            bytes_written += output_pos;
+            assert_eq!(input_pos, slices[i].len());
+            assert_eq!(status, match flush_mode {TDEFLFlush::Finish => TDEFLStatus::Done, _ => TDEFLStatus::Okay});
+        }
+
+        &buffer[..bytes_written]
+    }
+}
+
+ */
+
+pub struct GRPCCompressor {
+
+}
+
+impl GRPCCompressor {
+    pub fn new() -> Self {
+        Self {
+        }
+    }
+
+    pub fn zlib_deflate<'b>(&mut self, slices: &[&[u8]], buffer: &'b mut [u8]) -> &'b [u8] {
+        let mut bytes_written = 0;
+
+        &buffer[0..bytes_written]
     }
 }
 
@@ -62,7 +98,7 @@ impl<'a, const L: usize> GRPCMessage<'a, L> {
     pub fn compress<'b>(&self, compressor: &mut GRPCCompressor, buffer: &'b mut [u8]) -> GRPCMessage<'b, 1> {
         assert_eq!(self.prefix[0], 0); // Don't compress if already compressed
         GRPCMessage::<1>::from_proto_message(
-            BufferSlice::new_from_slice(self.proto_body.zlib_deflate(&mut compressor.compressor, buffer)),
+            BufferSlice::new_from_slice(compressor.zlib_deflate(self.proto_body.to_slice_slice(), buffer)),
             true
         )
     }
@@ -77,8 +113,11 @@ impl<'a, const L: usize> GRPCMessage<'a, L> {
 }
 
 pub trait GRPCMessageBoxWritable {
-    fn compress_from_slice<'a, 'b>(&'a mut self, compressor: &mut GRPCCompressor, source: &'b [&'b[u8]]);
+    fn compress_from_slice_slice<'a, 'b>(&'a mut self, compressor: &mut GRPCCompressor, source: &'b [&'b[u8]]);
+    fn copy_from_slice_slice<'a, 'b>(&'a mut self, source: &'b [&'b[u8]]);
 }
+
+
 
 #[derive(Clone, Copy)]
 pub struct GRPCMessageBox<const L: usize> {
@@ -96,12 +135,13 @@ impl<const L: usize> GRPCMessageBox<L> {
         }
     }
 
+    /*
     pub fn compress_from<'a, 'b, const L2: usize>(&'a mut self, compressor: &mut GRPCCompressor, source: &'b GRPCMessage<'b, L2>) {
         assert!(!source.compressed());
         let new_slice = source.proto_body.zlib_deflate(&mut compressor.compressor, &mut self.buffer);
         self.length = new_slice.len();
         self.is_compressed = true;
-    }
+    }*/
 
     pub fn get_message(&self) -> GRPCMessage<'_, 1> {
         GRPCMessage::from_proto_message(BufferSlice::new_from_slice(&self.buffer[..self.length]), self.is_compressed)
@@ -109,10 +149,19 @@ impl<const L: usize> GRPCMessageBox<L> {
 }
 
 impl<const L: usize> GRPCMessageBoxWritable for GRPCMessageBox<L> {
-    fn compress_from_slice<'a, 'b>(&'a mut self, compressor: &mut GRPCCompressor, source: &'b [&'b[u8]]) {
-        let new_slice = zlib_deflate(source, &mut compressor.compressor, &mut self.buffer);
+    fn compress_from_slice_slice<'a, 'b>(&'a mut self, compressor: &mut GRPCCompressor, source: &'b [&'b[u8]]) {
+        let new_slice = compressor.zlib_deflate(source, &mut self.buffer);
         self.length = new_slice.len();
         self.is_compressed = true;
+    }
+
+    fn copy_from_slice_slice<'a, 'b>(&'a mut self, source: &'b [&'b[u8]]) {
+        self.length = 0;
+        for x in source {
+            self.buffer[self.length..self.length+x.len()].copy_from_slice(x);
+            self.length += x.len();
+        }
+        self.is_compressed = false;
     }
 }
 

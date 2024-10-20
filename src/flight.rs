@@ -214,19 +214,43 @@ where
                     }
                 }
             }).await;
-            info!("Did compress!");
             self.ready_for_read.send((box_idx_to_write, swapchain_idx)).await;
         }
     }
 
-    pub async fn grpc_loop< E, DnsError, ConnectType>(
+    pub async fn copy_loop(&self) {
+        let mut builder = FlatBufferBuilder::new();
+        loop {
+            let mut signal_futures = Vec::new();
+            for s in &self.swapchain_exports {
+                signal_futures.push(s.get_new_readable_signal().wait());
+            }
+            let (_, swapchain_idx) = select_slice(signal_futures.as_mut_slice()).await;
+            let swapchain_exportable = self.swapchain_exports[swapchain_idx];
+            let box_idx_to_write = self.ready_for_write.receive().await;
+            let mut box_to_write = self.message_boxes[box_idx_to_write].lock().await;
+            let box_ref = box_to_write.deref_mut();
+            poll_fn(|cx| {
+                match swapchain_exportable.write_uncompressed_flight_record_batch_message(&mut builder, box_ref) {
+                    Ok(_) => {
+                        Poll::Ready(())
+                    }
+                    Err(_) => {
+                        Poll::Pending
+                    }
+                }
+            }).await;
+            self.ready_for_read.send((box_idx_to_write, swapchain_idx)).await;
+        }
+    }
+
+    pub async fn grpc_loop< E, ConnectType>(
         &self,
-       tcp_connect: &mut ConnectType,
+       tcp_connect: &ConnectType,
        address: SocketAddr,)
     where
         E: core::fmt::Debug,
-        DnsError: core::fmt::Debug,
-        ConnectType: TcpConnect<Error = E> + Dns<Error = DnsError>,
+        ConnectType: TcpConnect<Error = E>,
     {
         let mut connection = tcp_connect.connect(address).await.unwrap();
 

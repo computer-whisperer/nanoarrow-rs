@@ -6,17 +6,19 @@ extern crate alloc;
 
 
 mod scalar_array;
-mod time_series_record_batch;
+pub mod time_series_record_batch;
 mod Schema_generated;
 mod Tensor_generated;
 mod SparseTensor_generated;
 mod Message_generated;
-mod flight;
+pub mod flight;
 mod http2;
 mod hpack;
 mod grpc;
 mod buffer_slice;
-mod record_batch_swapchain;
+pub mod record_batch_swapchain;
+mod zlib;
+mod deflate;
 
 #[cfg(test)]
 mod tests {
