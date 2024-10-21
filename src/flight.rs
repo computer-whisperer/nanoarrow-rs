@@ -1,6 +1,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::future::poll_fn;
+use core::net::SocketAddr;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 use embassy_futures::select::select_slice;
@@ -8,7 +9,7 @@ use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::{Mutex, TryLockError};
 use embassy_sync::signal::Signal;
-use embedded_nal_async::{Dns, SocketAddr, TcpConnect};
+use embedded_nal_async::{Dns, TcpConnect};
 use femtopb::{item_encoding, Message, repeated};
 use femtopb::encoding::WireType;
 use flatbuffers::FlatBufferBuilder;

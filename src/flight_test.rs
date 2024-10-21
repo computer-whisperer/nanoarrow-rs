@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+use std::net::SocketAddr;
 use embedded_io_async::Write;
 use std_embedded_nal_async;
 
@@ -33,7 +34,7 @@ async fn run<S, E, DnsError>(stack: &mut S) -> Result<(), E>
         DnsError: core::fmt::Debug,
         S: TcpConnect<Error = E> + Dns<Error = DnsError>,
 {
-    let target = embedded_nal_async::SocketAddr::new(
+    let target = SocketAddr::new(
         stack.get_host_by_name("localhost", embedded_nal_async::AddrType::IPv6).await.unwrap(),
         8815
     );

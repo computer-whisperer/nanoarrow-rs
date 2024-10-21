@@ -20,6 +20,10 @@ pub mod record_batch_swapchain;
 mod zlib;
 mod deflate;
 
+pub use flight::FlightClient;
+pub use record_batch_swapchain::RecordBatchSwapchain;
+pub use time_series_record_batch::{RecordBatch, TimeSeriesRecordBatch};
+
 #[cfg(test)]
 mod tests {
     extern crate std;
