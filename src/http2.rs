@@ -442,6 +442,16 @@ impl<'a, T> HTTP2Client<'a, T> where T: embedded_io_async::Write + embedded_io_a
         Frame::decode_frame(buffer)
     }
 
+    pub async fn lossy_receive_loop(&mut self) -> ! {
+        let mut buffer = [0u8; 256];
+        loop {
+            match self.read_frame(&mut buffer).await {
+                Ok(_) => {}
+                Err(_) => {}
+            };
+        }
+    }
+
     pub async fn new_outbound_stream<const L: usize>(&mut self, header_list: PlaintextHeaderList<'_, L>) -> Result<HTTP2Stream, Error> {
         // Client-initiated streams must be odd
         let new_stream_id = if self.largest_stream_id%2 == 0 {

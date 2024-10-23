@@ -1,10 +1,9 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::future::poll_fn;
-use core::net::SocketAddr;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
-use embassy_futures::select::select_slice;
+use embassy_futures::select::{select, select_slice, Either};
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::{Mutex, TryLockError};
@@ -248,7 +247,7 @@ where
     pub async fn grpc_loop< E, ConnectType>(
         &self,
        tcp_connect: &ConnectType,
-       address: SocketAddr,)
+       address: embedded_nal_async::SocketAddr,)
     where
         E: core::fmt::Debug,
         ConnectType: TcpConnect<Error = E>,
@@ -264,24 +263,28 @@ where
         }
 
         loop {
-            let (box_to_read, swapchain_idx) = self.ready_for_read.receive().await;
-            let grpc_call = match &grpc_calls[swapchain_idx] {
-                None => {
-                    let mut grpc_call = grpc_client.new_call("/arrow.flight.protocol.FlightService/DoPut").await.unwrap();
-                    let raw_schema = self.swapchain_exports[swapchain_idx].get_schema(&mut builder);
-                    let path = self.swapchain_exports[swapchain_idx].get_path();
-                    let mut enc_buffer = [0u8; 200];
-                    let message = build_schema_message_from_parts(raw_schema, & mut enc_buffer[..], path);
-                    grpc_client.send_message(&mut grpc_call, &message, false).await.unwrap();
-                    grpc_calls[swapchain_idx] = Some(grpc_call);
-                    grpc_calls[swapchain_idx].as_ref().unwrap()
+            let task_future = self.ready_for_read.receive();
+            match select(grpc_client.lossy_receive_loop(), task_future).await {
+                Either::First(_) => {}
+                Either::Second((box_to_read, swapchain_idx)) => {
+                    let grpc_call = match &grpc_calls[swapchain_idx] {
+                        None => {
+                            let mut grpc_call = grpc_client.new_call("/arrow.flight.protocol.FlightService/DoPut").await.unwrap();
+                            let raw_schema = self.swapchain_exports[swapchain_idx].get_schema(&mut builder);
+                            let path = self.swapchain_exports[swapchain_idx].get_path();
+                            let mut enc_buffer = [0u8; 200];
+                            let message = build_schema_message_from_parts(raw_schema, & mut enc_buffer[..], path);
+                            grpc_client.send_message(&mut grpc_call, &message, false).await.unwrap();
+                            grpc_calls[swapchain_idx] = Some(grpc_call);
+                            grpc_calls[swapchain_idx].as_ref().unwrap()
+                        }
+                        Some(x) => {x}
+                    };
+                    let message_box = self.message_boxes[box_to_read].lock().await;
+                    grpc_client.send_message(grpc_call, &message_box.get_message(), false).await.unwrap();
+                    self.ready_for_write.send(box_to_read).await;
                 }
-                Some(x) => {x}
-            };
-            let message_box = self.message_boxes[box_to_read].lock().await;
-            info!("Did send!");
-            grpc_client.send_message(grpc_call, &message_box.get_message(), false).await.unwrap();
-            self.ready_for_write.send(box_to_read).await;
+            }
         }
     }
 }

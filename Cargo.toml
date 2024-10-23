@@ -15,7 +15,7 @@ required-features = ["flight-test"]
 [dependencies]
 flatbuffers = { version = "24.3.25", default-features = false }
 embedded-io-async = "0.6"
-embedded-nal-async = "0.8.0"
+embedded-nal-async = "0.7.1"
 femtopb = "0.5.0"
 log = "0.4.21"
 typenum = "1.17.0"
@@ -23,11 +23,11 @@ embassy-sync = {version = "0.6.0"}
 defmt = "0.3"
 std-embedded-nal-async = { version = "0.2.0", optional=true }
 async-std = { version="1.12.0", optional=true, features=["attributes"] }
-embassy-executor = { version = "0.6.0", features = ["executor-thread"] }
+embassy-executor = { version = "0.6.1", features = ["executor-thread"] }
 embassy-time  = {version = "0.3.1"}
 embassy-futures = {version = "0.1.1"}
 libflate = {version = "2.1.0", default-features = false}
-core2 = "0.4.0"
+core2 = { version = "0.4", default-features = false }
 
 [build-dependencies]
 femtopb-build = "0.5.0"

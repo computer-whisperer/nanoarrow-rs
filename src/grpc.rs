@@ -213,6 +213,10 @@ where
             http2_stream
         })
     }
+
+    pub async fn lossy_receive_loop(&mut self) {
+        self.http2_client.lossy_receive_loop().await;
+    }
 }
 
 pub struct GRPCCall {
