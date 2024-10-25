@@ -7,7 +7,7 @@ use crate::Schema_generated::org::apache::arrow::flatbuf::{Type, Int, IntArgs, F
 #[derive(Debug, Copy, Clone)]
 pub struct OverflowError {}
 
-pub trait ArrowPrimitive: Copy+Clone {
+pub trait ArrowPrimitive: Copy+Clone+Sized {
     fn arrow_type_type() -> Type;
 
     fn arrow_type<'a>(builder: &'a mut flatbuffers::FlatBufferBuilder) -> WIPOffset<UnionWIPOffset>;

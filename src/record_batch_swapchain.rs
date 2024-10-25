@@ -141,7 +141,7 @@ where
         let buffer = self.try_get_readable_buffer()?;
         let (header, body) = buffer.get_record_batch(builder);
         let descriptor= build_path_descriptor(self.descriptor_path);
-        let mut temp_buffer = [0u8; 200];
+        let mut temp_buffer = [0u8; 1000];
         let raw_message = encode_record_batch_from_parts(descriptor, &mut temp_buffer, header, body);
         let (proto_body, is_compressed) = raw_message.get_proto_message();
         assert!(!is_compressed);
@@ -155,7 +155,7 @@ where
         let buffer = self.try_get_readable_buffer()?;
         let (header, body) = buffer.get_record_batch(builder);
         let descriptor= build_path_descriptor(self.descriptor_path);
-        let mut temp_buffer = [0u8; 200];
+        let mut temp_buffer = [0u8; 1000];
         let raw_message = encode_record_batch_from_parts(descriptor, &mut temp_buffer, header, body);
         let (proto_body, is_compressed) = raw_message.get_proto_message();
         assert!(!is_compressed);

@@ -445,7 +445,7 @@ impl<'a, T> HTTP2Client<'a, T> where T: embedded_io_async::Write + embedded_io_a
     pub async fn lossy_receive_loop(&mut self) -> ! {
         let mut buffer = [0u8; 256];
         loop {
-            match self.read_frame(&mut buffer).await {
+            match self.connection.read(&mut buffer).await {
                 Ok(_) => {}
                 Err(_) => {}
             };

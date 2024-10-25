@@ -23,6 +23,7 @@ mod deflate;
 pub use flight::FlightClient;
 pub use record_batch_swapchain::RecordBatchSwapchain;
 pub use time_series_record_batch::{RecordBatch, TimeSeriesRecordBatch};
+pub use scalar_array::ArrowPrimitive;
 
 #[cfg(test)]
 mod tests {

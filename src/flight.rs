@@ -54,8 +54,11 @@ pub fn encode_flight_data_with_body<'a, const L: usize>(
     let new_len = {
         let buffer_len = buffer.len();
         let mut buf_out = &mut buffer[..];
+        assert!(buf_out.len() > 16);
         flight_data.encode(&mut buf_out).unwrap();
+        assert!(buf_out.len() > 16);
         femtopb::encoding::encode_key(1000, WireType::LengthDelimited, &mut buf_out);
+        assert!(buf_out.len() > 16);
         femtopb::encoding::encode_varint(flight_data_body.len() as u64, &mut buf_out);
         buffer_len - buf_out.len()
     };
@@ -68,6 +71,7 @@ pub fn encode_flight_data<'a>(mut flight_data: FlightData, buffer: &'a mut [u8])
     let bytes_written = {
         let buffer_len = buffer.len();
         let mut buf_out = &mut buffer[..];
+        assert!(buf_out.len() > 16);
         flight_data.encode(&mut buf_out).unwrap();
         buffer_len - buf_out.len()
     };
@@ -153,22 +157,20 @@ where
     grpc_call: Option<GRPCCall>
 }
 
-pub struct FlightClient<'a, MutexType, const BoxSize: usize, const BoxCount: usize>
+pub struct FlightClient<MutexType, const BoxSize: usize, const BoxCount: usize>
 where
     MutexType: RawMutex
 {
-    swapchain_exports: Vec<&'a dyn RecordBatchSwapchainExportable<MutexType>>,
     message_boxes: [Mutex<MutexType, GRPCMessageBox<BoxSize>>; BoxCount],
     ready_for_write: Channel<MutexType, usize, BoxCount>,
     ready_for_read: Channel<MutexType, (usize, usize), BoxCount>
 }
 
-impl <'a, MutexType, const BOX_SIZE: usize, const BOX_COUNT: usize> FlightClient<'a, MutexType, BOX_SIZE, BOX_COUNT>
+impl <'a, MutexType, const BOX_SIZE: usize, const BOX_COUNT: usize> FlightClient<MutexType, BOX_SIZE, BOX_COUNT>
 where
     MutexType: RawMutex
 {
     pub fn new() -> Self {
-        let swapchain_exports = Vec::new();
         let message_boxes = core::array::from_fn(|_| Mutex::new(GRPCMessageBox::new()));
         let ready_for_write = Channel::new();
         let ready_for_read = Channel::new();
@@ -176,31 +178,22 @@ where
             ready_for_write.try_send(i).unwrap();
         }
         Self {
-            swapchain_exports,
             message_boxes,
             ready_for_write,
             ready_for_read
         }
     }
 
-    pub fn add_swapchain_export<'b, 'c>(&'b mut self, export: &'c dyn RecordBatchSwapchainExportable<MutexType>)
-    where
-        'c: 'b,
-        'c: 'a
-    {
-        self.swapchain_exports.push(export);
-    }
-
-    pub async fn compression_loop(&self) {
+    pub async fn compression_loop(&self, swapchain_exports: &[&'a dyn RecordBatchSwapchainExportable<MutexType>]) {
         let mut builder = FlatBufferBuilder::new();
         let mut compressor = GRPCCompressor::new();
         loop {
             let mut signal_futures = Vec::new();
-            for s in &self.swapchain_exports {
+            for s in swapchain_exports {
                 signal_futures.push(s.get_new_readable_signal().wait());
             }
             let (_, swapchain_idx) = select_slice(signal_futures.as_mut_slice()).await;
-            let swapchain_exportable = self.swapchain_exports[swapchain_idx];
+            let swapchain_exportable = swapchain_exports[swapchain_idx];
             let box_idx_to_write = self.ready_for_write.receive().await;
             let mut box_to_write = self.message_boxes[box_idx_to_write].lock().await;
             let box_ref = box_to_write.deref_mut();
@@ -218,15 +211,15 @@ where
         }
     }
 
-    pub async fn copy_loop(&self) {
+    pub async fn copy_loop(&self, swapchain_exports: &[&'a dyn RecordBatchSwapchainExportable<MutexType>]) {
         let mut builder = FlatBufferBuilder::new();
         loop {
             let mut signal_futures = Vec::new();
-            for s in &self.swapchain_exports {
+            for s in swapchain_exports {
                 signal_futures.push(s.get_new_readable_signal().wait());
             }
             let (_, swapchain_idx) = select_slice(signal_futures.as_mut_slice()).await;
-            let swapchain_exportable = self.swapchain_exports[swapchain_idx];
+            let swapchain_exportable = swapchain_exports[swapchain_idx];
             let box_idx_to_write = self.ready_for_write.receive().await;
             let mut box_to_write = self.message_boxes[box_idx_to_write].lock().await;
             let box_ref = box_to_write.deref_mut();
@@ -246,8 +239,9 @@ where
 
     pub async fn grpc_loop< E, ConnectType>(
         &self,
-       tcp_connect: &ConnectType,
-       address: embedded_nal_async::SocketAddr,)
+        tcp_connect: &ConnectType,
+        address: embedded_nal_async::SocketAddr,
+        swapchain_exports: &[&'a dyn RecordBatchSwapchainExportable<MutexType>])
     where
         E: core::fmt::Debug,
         ConnectType: TcpConnect<Error = E>,
@@ -258,7 +252,7 @@ where
         let mut builder = FlatBufferBuilder::new();
 
         let mut grpc_calls = Vec::<Option<GRPCCall>>::new();
-        for _ in 0..self.swapchain_exports.len() {
+        for _ in 0..swapchain_exports.len() {
             grpc_calls.push(None);
         }
 
@@ -270,9 +264,9 @@ where
                     let grpc_call = match &grpc_calls[swapchain_idx] {
                         None => {
                             let mut grpc_call = grpc_client.new_call("/arrow.flight.protocol.FlightService/DoPut").await.unwrap();
-                            let raw_schema = self.swapchain_exports[swapchain_idx].get_schema(&mut builder);
-                            let path = self.swapchain_exports[swapchain_idx].get_path();
-                            let mut enc_buffer = [0u8; 200];
+                            let raw_schema = swapchain_exports[swapchain_idx].get_schema(&mut builder);
+                            let path = swapchain_exports[swapchain_idx].get_path();
+                            let mut enc_buffer = [0u8; 2000];
                             let message = build_schema_message_from_parts(raw_schema, & mut enc_buffer[..], path);
                             grpc_client.send_message(&mut grpc_call, &message, false).await.unwrap();
                             grpc_calls[swapchain_idx] = Some(grpc_call);
