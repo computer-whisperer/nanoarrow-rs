@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
+use core::net::SocketAddr;
 use embassy_futures::select::{select, select_slice, Either};
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
@@ -240,7 +241,7 @@ where
     pub async fn grpc_loop< E, ConnectType>(
         &self,
         tcp_connect: &ConnectType,
-        address: embedded_nal_async::SocketAddr,
+        address: SocketAddr,
         swapchain_exports: &[&'a dyn RecordBatchSwapchainExportable<MutexType>])
     where
         E: core::fmt::Debug,
