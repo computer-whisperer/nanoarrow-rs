@@ -23,7 +23,7 @@ where
         &self, builder: &'a mut FlatBufferBuilder<'fbb>, message_box: &mut dyn GRPCMessageBoxWritable)
         -> Result<(), TryLockError>;
     fn get_new_readable_signal(&self) -> &Signal<RawMutexType, ()>;
-    fn get_path(&self) -> &[&str];
+    fn get_path(&self) -> Result<&[&str], TryLockError>;
 }
 
 pub struct RecordBatchSwapchain<'buffer, 'a, RawMutexType, T>
@@ -35,7 +35,7 @@ where
     currently_writable_index: Mutex<RawMutexType, usize>,
     currently_readable_index: Mutex<RawMutexType, usize>,
     new_readable_signal: Signal<RawMutexType, ()>,
-    descriptor_path: &'a [&'a str],
+    descriptor_path: Mutex<RawMutexType, &'a [&'a str]>,
     phantom: PhantomData<&'buffer ()>
 }
 
@@ -54,9 +54,14 @@ where
             currently_writable_index: Mutex::new(0),
             currently_readable_index: Mutex::new(1),
             new_readable_signal: Signal::new(),
-            descriptor_path,
+            descriptor_path: Mutex::new(descriptor_path),
             phantom: PhantomData::default()
         }
+    }
+
+    pub async fn update_descriptor_path(&self, descriptor_path: &'a [&'a str]) {
+        let mut descriptor_path_lock = self.descriptor_path.lock().await;
+        *descriptor_path_lock = descriptor_path;
     }
 
     pub async fn append_row(&self, row: T::RowType) {
@@ -140,7 +145,7 @@ where
         -> Result<(), TryLockError> {
         let buffer = self.try_get_readable_buffer()?;
         let (header, body) = buffer.get_record_batch(builder);
-        let descriptor= build_path_descriptor(self.descriptor_path);
+        let descriptor= build_path_descriptor(self.descriptor_path.try_lock()?.clone());
         let mut temp_buffer = [0u8; 1000];
         let raw_message = encode_record_batch_from_parts(descriptor, &mut temp_buffer, header, body);
         let (proto_body, is_compressed) = raw_message.get_proto_message();
@@ -154,7 +159,7 @@ where
         -> Result<(), TryLockError> {
         let buffer = self.try_get_readable_buffer()?;
         let (header, body) = buffer.get_record_batch(builder);
-        let descriptor= build_path_descriptor(self.descriptor_path);
+        let descriptor= build_path_descriptor(self.descriptor_path.try_lock()?.clone());
         let mut temp_buffer = [0u8; 1000];
         let raw_message = encode_record_batch_from_parts(descriptor, &mut temp_buffer, header, body);
         let (proto_body, is_compressed) = raw_message.get_proto_message();
@@ -167,8 +172,8 @@ where
         &self.new_readable_signal
     }
 
-    fn get_path(&self) -> &[&str] {
-        self.descriptor_path
+    fn get_path(&self) -> Result<&[&str], TryLockError> {
+        Ok(self.descriptor_path.try_lock()?.clone())
     }
 }
 

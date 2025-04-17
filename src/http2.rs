@@ -103,6 +103,15 @@ pub struct RstStreamFrame {
     error_code: u32
 }
 
+impl RstStreamFrame {
+    fn new(stream_id: u32, error_code: u32) -> Self {
+        RstStreamFrame {
+            stream_id,
+            error_code
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct SettingsFrame {
     ack: bool
@@ -485,6 +494,16 @@ impl<'a, T> HTTP2Client<'a, T> where T: embedded_io_async::Write + embedded_io_a
             )
         );
         self.write_frame(new_frame).await
+    }
+
+    pub async fn close_stream(&mut self, stream: HTTP2Stream) {
+        let new_frame = Frame::<'a, 1>::RstStream(
+            RstStreamFrame::new(
+                stream.stream_id,
+                0
+            )
+        );
+        self.write_frame(new_frame).await.unwrap();
     }
 }
 

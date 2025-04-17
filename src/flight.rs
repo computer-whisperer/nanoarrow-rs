@@ -4,6 +4,7 @@ use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 use core::net::SocketAddr;
+use core::pin::Pin;
 use embassy_futures::select::{select, select_slice, Either};
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
@@ -14,6 +15,7 @@ use femtopb::{item_encoding, Message, repeated};
 use femtopb::encoding::WireType;
 use flatbuffers::FlatBufferBuilder;
 use defmt::info;
+use embassy_time::Timer;
 use crate::buffer_slice::BufferSlice;
 use crate::http2;
 use crate::time_series_record_batch::{RecordBatch, TimeSeriesRecordBatch};
@@ -193,7 +195,7 @@ where
             for s in swapchain_exports {
                 signal_futures.push(s.get_new_readable_signal().wait());
             }
-            let (_, swapchain_idx) = select_slice(signal_futures.as_mut_slice()).await;
+            let (_, swapchain_idx) = select_slice(Pin::new(signal_futures.as_mut_slice())).await;
             let swapchain_exportable = swapchain_exports[swapchain_idx];
             let box_idx_to_write = self.ready_for_write.receive().await;
             let mut box_to_write = self.message_boxes[box_idx_to_write].lock().await;
@@ -219,7 +221,7 @@ where
             for s in swapchain_exports {
                 signal_futures.push(s.get_new_readable_signal().wait());
             }
-            let (_, swapchain_idx) = select_slice(signal_futures.as_mut_slice()).await;
+            let (_, swapchain_idx) = select_slice(Pin::new(signal_futures.as_mut_slice())).await;
             let swapchain_exportable = swapchain_exports[swapchain_idx];
             let box_idx_to_write = self.ready_for_write.receive().await;
             let mut box_to_write = self.message_boxes[box_idx_to_write].lock().await;
@@ -242,19 +244,21 @@ where
         &self,
         tcp_connect: &ConnectType,
         address: SocketAddr,
-        swapchain_exports: &[&'a dyn RecordBatchSwapchainExportable<MutexType>])
+        swapchain_exports: &[&'a dyn RecordBatchSwapchainExportable<MutexType>]) -> Result<(), E>
     where
         E: core::fmt::Debug,
         ConnectType: TcpConnect<Error = E>,
     {
-        let mut connection = tcp_connect.connect(address).await.unwrap();
+        let mut connection = tcp_connect.connect(address).await?;
 
         let mut grpc_client = GRPCClient::new(&mut connection).await.unwrap();
         let mut builder = FlatBufferBuilder::new();
 
+        let mut last_descriptor_paths = Vec::<Option<&[&str]>>::new();
         let mut grpc_calls = Vec::<Option<GRPCCall>>::new();
         for _ in 0..swapchain_exports.len() {
             grpc_calls.push(None);
+            last_descriptor_paths.push(None);
         }
 
         loop {
@@ -262,19 +266,27 @@ where
             match select(grpc_client.lossy_receive_loop(), task_future).await {
                 Either::First(_) => {}
                 Either::Second((box_to_read, swapchain_idx)) => {
-                    let grpc_call = match &grpc_calls[swapchain_idx] {
-                        None => {
-                            let mut grpc_call = grpc_client.new_call("/arrow.flight.protocol.FlightService/DoPut").await.unwrap();
-                            let raw_schema = swapchain_exports[swapchain_idx].get_schema(&mut builder);
-                            let path = swapchain_exports[swapchain_idx].get_path();
-                            let mut enc_buffer = [0u8; 2000];
-                            let message = build_schema_message_from_parts(raw_schema, & mut enc_buffer[..], path);
-                            grpc_client.send_message(&mut grpc_call, &message, false).await.unwrap();
-                            grpc_calls[swapchain_idx] = Some(grpc_call);
-                            grpc_calls[swapchain_idx].as_ref().unwrap()
+                    let descriptor_path = loop {
+                        if let Ok(path) = swapchain_exports[swapchain_idx].get_path() {
+                            break path;
                         }
-                        Some(x) => {x}
+                        Timer::after_millis(1).await;
                     };
+                    let descriptor_path_is_new = last_descriptor_paths[swapchain_idx].is_none() || descriptor_path != last_descriptor_paths[swapchain_idx].unwrap();
+                    last_descriptor_paths[swapchain_idx] = Some(descriptor_path);
+
+                    if descriptor_path_is_new || grpc_calls[swapchain_idx].is_none() {
+                        if let Some(grpc_call) = grpc_calls[swapchain_idx].take() {
+                            grpc_client.close_call(grpc_call).await;
+                        }
+                        let mut grpc_call = grpc_client.new_call("/arrow.flight.protocol.FlightService/DoPut").await.unwrap();
+                        let raw_schema = swapchain_exports[swapchain_idx].get_schema(&mut builder);
+                        let mut enc_buffer = [0u8; 2000];
+                        let message = build_schema_message_from_parts(raw_schema, & mut enc_buffer[..], descriptor_path);
+                        grpc_client.send_message(&mut grpc_call, &message, false).await.unwrap();
+                        grpc_calls[swapchain_idx] = Some(grpc_call);
+                    }
+                    let grpc_call = grpc_calls[swapchain_idx].as_ref().unwrap();
                     let message_box = self.message_boxes[box_to_read].lock().await;
                     grpc_client.send_message(grpc_call, &message_box.get_message(), false).await.unwrap();
                     self.ready_for_write.send(box_to_read).await;

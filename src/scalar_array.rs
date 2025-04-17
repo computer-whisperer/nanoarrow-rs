@@ -112,7 +112,8 @@ where
         // - We are aligned and initialized for len elements of T
         // - We correspond to a single allocation
         // - We do not support modification whilst active immutable borrows
-        unsafe { core::slice::from_raw_parts(self.backing.as_ptr() as _, self.length) }
+        let len = self.length.min(self.backing.len()/core::mem::size_of::<T>());
+        unsafe { core::slice::from_raw_parts(self.backing.as_ptr() as _, len) }
     }
 
     #[inline]
@@ -122,7 +123,8 @@ where
         // - MutableBuffer is aligned and initialized for len elements of T
         // - MutableBuffer corresponds to a single allocation
         // - MutableBuffer does not support modification whilst active immutable borrows
-        unsafe { core::slice::from_raw_parts_mut(self.backing.as_mut_ptr() as _, self.length) }
+        let len = self.length.min(self.backing.len()/core::mem::size_of::<T>());
+        unsafe { core::slice::from_raw_parts_mut(self.backing.as_mut_ptr() as _, len) }
     }
 
     pub fn append(&mut self, value: T) -> Result<(), OverflowError> {

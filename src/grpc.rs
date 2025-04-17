@@ -205,7 +205,7 @@ where
         header_list.add_header(":authority", "no");
         header_list.add_header("te",  "trailers");
         header_list.add_header("content-type",  "application/grpc+proto");
-        header_list.add_header("grpc-encoding",  "deflate");
+        header_list.add_header("grpc-encoding",  "identity");
 
 
         let http2_stream = self.http2_client.new_outbound_stream(header_list).await?;
@@ -216,6 +216,10 @@ where
 
     pub async fn lossy_receive_loop(&mut self) {
         self.http2_client.lossy_receive_loop().await;
+    }
+
+    pub async fn close_call(&mut self, grpc_call: GRPCCall) {
+        self.http2_client.close_stream(grpc_call.http2_stream).await;
     }
 }
 
