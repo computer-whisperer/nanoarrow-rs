@@ -1,15 +1,17 @@
-
 #![no_std]
 #![feature(generic_const_exprs)]
 
 extern crate alloc;
 
-
 mod scalar_array;
 pub mod time_series_record_batch;
+#[allow(non_snake_case)]
 mod Schema_generated;
+#[allow(non_snake_case)]
 mod Tensor_generated;
+#[allow(non_snake_case)]
 mod SparseTensor_generated;
+#[allow(non_snake_case)]
 mod Message_generated;
 pub mod flight;
 mod http2;
@@ -24,16 +26,3 @@ pub use flight::FlightClient;
 pub use record_batch_swapchain::RecordBatchSwapchain;
 pub use time_series_record_batch::{RecordBatch, TimeSeriesRecordBatch};
 pub use scalar_array::ArrowPrimitive;
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-    use super::*;
-
-    #[test]
-    fn it_works() {
-
-
-
-    }
-}

@@ -1,3 +1,4 @@
+use embedded_io_async::ErrorType;
 use crate::buffer_slice::{BufferSlice};
 use crate::{hpack, http2};
 use crate::http2::HTTP2Client;
@@ -167,14 +168,16 @@ impl<const L: usize> GRPCMessageBoxWritable for GRPCMessageBox<L> {
 
 pub struct GRPCClient<'a, T>
 where
-    T: embedded_io_async::Write + embedded_io_async::Read
+    T: embedded_io_async::Write + embedded_io_async::Read,
+    <T as ErrorType>::Error: defmt::Format
 {
     pub http2_client: HTTP2Client<'a, T>
 }
 
 impl<'a, T> GRPCClient<'a, T>
 where
-    T: embedded_io_async::Write + embedded_io_async::Read
+    T: embedded_io_async::Write + embedded_io_async::Read,
+    <T as ErrorType>::Error: defmt::Format
 {
 
     pub async fn new(connection: &'a mut T) -> Result<Self, http2::Error> {
@@ -214,8 +217,8 @@ where
         })
     }
 
-    pub async fn lossy_receive_loop(&mut self) {
-        self.http2_client.lossy_receive_loop().await;
+    pub async fn lossy_receive_loop(&mut self) -> Result<(), http2::Error> {
+        self.http2_client.lossy_receive_loop().await
     }
 
     pub async fn close_call(&mut self, grpc_call: GRPCCall) {

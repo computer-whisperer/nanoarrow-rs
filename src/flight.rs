@@ -169,6 +169,14 @@ where
     ready_for_read: Channel<MutexType, (usize, usize), BoxCount>
 }
 
+#[derive(thiserror::Error)]
+pub enum Error<TCPError> {
+    #[error("TCP Error")]
+    TCPError(#[from] TCPError),
+    #[error("HTTP2 Error")]
+    HTTP2Error(http2::Error)
+}
+
 impl <'a, MutexType, const BOX_SIZE: usize, const BOX_COUNT: usize> FlightClient<MutexType, BOX_SIZE, BOX_COUNT>
 where
     MutexType: RawMutex
@@ -244,9 +252,9 @@ where
         &self,
         tcp_connect: &ConnectType,
         address: SocketAddr,
-        swapchain_exports: &[&'a dyn RecordBatchSwapchainExportable<MutexType>]) -> Result<(), E>
+        swapchain_exports: &[&'a dyn RecordBatchSwapchainExportable<MutexType>]) -> Result<(), Error<E>>
     where
-        E: core::fmt::Debug,
+        E: core::fmt::Debug + defmt::Format,
         ConnectType: TcpConnect<Error = E>,
     {
         let mut connection = tcp_connect.connect(address).await?;
@@ -264,7 +272,15 @@ where
         loop {
             let task_future = self.ready_for_read.receive();
             match select(grpc_client.lossy_receive_loop(), task_future).await {
-                Either::First(_) => {}
+                Either::First(x) => {
+                    match x {
+                        Ok(_) => {}
+                        Err(x) => {
+                            Err(Error::HTTP2Error(x))?
+                        }
+                    }
+                    return Ok(());
+                }
                 Either::Second((box_to_read, swapchain_idx)) => {
                     let descriptor_path = loop {
                         if let Ok(path) = swapchain_exports[swapchain_idx].get_path() {
@@ -281,7 +297,7 @@ where
                         }
                         let mut grpc_call = grpc_client.new_call("/arrow.flight.protocol.FlightService/DoPut").await.unwrap();
                         let raw_schema = swapchain_exports[swapchain_idx].get_schema(&mut builder);
-                        let mut enc_buffer = [0u8; 2000];
+                        let mut enc_buffer = [0u8; 3000];
                         let message = build_schema_message_from_parts(raw_schema, & mut enc_buffer[..], descriptor_path);
                         grpc_client.send_message(&mut grpc_call, &message, false).await.unwrap();
                         grpc_calls[swapchain_idx] = Some(grpc_call);

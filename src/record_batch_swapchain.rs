@@ -66,20 +66,29 @@ where
 
     pub async fn append_row(&self, row: T::RowType) {
         let mut writable_index = self.currently_writable_index.lock().await;
-        let mut writable_buffer = self.buffers[*writable_index].lock().await;
-        match writable_buffer.append_row(row) {
-            Ok(_) => {}
-            Err(time_series_record_batch::Error::RecordBatchFullError) => {
+        let must_roll_over =  {
+            let mut writable_buffer = self.buffers[*writable_index].lock().await;
+            match writable_buffer.append_row(row) {
+                Ok(_) => { false }
+                Err(time_series_record_batch::Error::RecordBatchFullError) => {
+                    true
+                }
+            }
+        };
+        if must_roll_over {
+            {
                 let mut readable_index = self.currently_readable_index.lock().await;
                 *readable_index = *writable_index;
-                drop(readable_index);
-                self.new_readable_signal.signal(());
-                *writable_index = (*writable_index + 1) % self.buffers.len();
+            }
+            self.new_readable_signal.signal(());
+            *writable_index = (*writable_index + 1) % self.buffers.len();
+            {
                 let mut writable_buffer = self.buffers[*writable_index].lock().await;
                 writable_buffer.clear();
                 writable_buffer.append_row(row).unwrap();
             }
         }
+
     }
 
     pub fn try_append_row(&self, row: T::RowType) {

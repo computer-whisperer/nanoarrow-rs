@@ -1,6 +1,7 @@
 use core::fmt::Formatter;
+use defmt::{error, info};
 use embedded_nal_async::TcpConnect;
-use embedded_io_async::{Write, Read, ReadExactError};
+use embedded_io_async::{Write, Read, ReadExactError, ErrorType};
 use crate::hpack;
 use crate::buffer_slice::{BufferSlice};
 use crate::hpack::PlaintextHeaderList;
@@ -361,7 +362,8 @@ impl<'a> Frame<'a, 1> {
 
 pub struct HTTP2Client<'a, T>
 where
-    T: embedded_io_async::Write + embedded_io_async::Read
+    T: embedded_io_async::Write + embedded_io_async::Read,
+    <T as ErrorType>::Error: defmt::Format
 {
     connection: &'a mut T,
     hpack_encoder: hpack::Encoder,
@@ -369,7 +371,8 @@ where
     largest_stream_id: u32
 }
 
-impl<'a, T> HTTP2Client<'a, T> where T: embedded_io_async::Write + embedded_io_async::Read {
+impl<'a, T> HTTP2Client<'a, T> where T: embedded_io_async::Write + embedded_io_async::Read,
+                                     <T as ErrorType>::Error: defmt::Format {
     pub async fn new(connection: &'a mut T) -> Result<Self, Error>
     {
         let mut client = HTTP2Client {
@@ -451,12 +454,21 @@ impl<'a, T> HTTP2Client<'a, T> where T: embedded_io_async::Write + embedded_io_a
         Frame::decode_frame(buffer)
     }
 
-    pub async fn lossy_receive_loop(&mut self) -> ! {
+    pub async fn lossy_receive_loop(&mut self) -> Result<(), Error>
+    {
         let mut buffer = [0u8; 256];
         loop {
             match self.connection.read(&mut buffer).await {
-                Ok(_) => {}
-                Err(_) => {}
+                Ok(x) => {
+                    if x == 0 {
+                        info!("TCP connection closed");
+                        break Ok(());
+                    }
+                }
+                Err(x) => {
+                    info!("TCP connection error: {:?}", x);
+                    Err(Error::ReadError)?
+                }
             };
         }
     }
