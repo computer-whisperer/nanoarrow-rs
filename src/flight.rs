@@ -297,7 +297,7 @@ where
                         }
                         let mut grpc_call = grpc_client.new_call("/arrow.flight.protocol.FlightService/DoPut").await.unwrap();
                         let raw_schema = swapchain_exports[swapchain_idx].get_schema(&mut builder);
-                        let mut enc_buffer = [0u8; 3000];
+                        let mut enc_buffer = [0u8; 2000];
                         let message = build_schema_message_from_parts(raw_schema, & mut enc_buffer[..], descriptor_path);
                         grpc_client.send_message(&mut grpc_call, &message, false).await.unwrap();
                         grpc_calls[swapchain_idx] = Some(grpc_call);

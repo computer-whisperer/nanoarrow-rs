@@ -63,6 +63,17 @@ where
         let mut descriptor_path_lock = self.descriptor_path.lock().await;
         *descriptor_path_lock = descriptor_path;
     }
+    
+    pub async fn flush(&self) {
+        let mut writable_index = self.currently_writable_index.lock().await;
+        let mut readable_index = self.currently_readable_index.lock().await;
+        *readable_index = *writable_index;
+        *writable_index = (*writable_index + 1) % self.buffers.len();
+        {
+            let mut writable_buffer = self.buffers[*writable_index].lock().await;
+            writable_buffer.clear();
+        }
+    }
 
     pub async fn append_row(&self, row: T::RowType) {
         let mut writable_index = self.currently_writable_index.lock().await;
