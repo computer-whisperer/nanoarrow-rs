@@ -44,4 +44,4 @@ hpack-patched = "0.3.0"
 [features]
 default = []
 std = []
-flight-test = ["std", "embassy-executor/arch-std", "embassy-time/std", "embassy-time/generic-queue", "std-embedded-nal-async", "async-std", "embassy-executor", "embassy-executor/task-arena-size-786432"]
+flight-test = ["std", "embassy-executor/arch-std", "embassy-time/std", "std-embedded-nal-async", "async-std", "embassy-executor", "embassy-executor/task-arena-size-786432"]
